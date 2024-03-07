@@ -1,0 +1,7 @@
+{
+    "token": "Your-token-goes-here",
+    "clientId": "Your-client-id-goes-here",
+    "commandsFolder": "commands",
+    "eventsFolder": "events",
+    "defaultEmbedColor": "#000000"
+}
