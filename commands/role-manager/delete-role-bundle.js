@@ -7,7 +7,6 @@ module.exports = {
         .setName('delete-role-bundle')
         .setDescription('Deletes a role bundle.'),
     async execute(interaction) {
-
         const loadingEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
             .setTitle("Loading . . .")
@@ -32,14 +31,14 @@ module.exports = {
 
         let roleBundleOptions = [];
 
-        await databaseRoleBundles.forEach(databaseRoleBundle => {
+        for(const databaseRoleBundle of databaseRoleBundles){
             const roleBundleOption = new StringSelectMenuOptionBuilder()
                 .setLabel(`#${databaseRoleBundle.token}`)
                 .setValue(Buffer.from(databaseRoleBundle.token).toString('base64'))
-                .setDescription(`Selects the role bundle #${databaseRoleBundle.token} to delete.`);
+                .setDescription(`Deletes the #${databaseRoleBundle.token} role bundle.`);
 
             roleBundleOptions.push(roleBundleOption);
-        });
+        }
 
         const roleBundleSelectorMenu = new StringSelectMenuBuilder()
             .setCustomId('select-role-bundle')
@@ -50,36 +49,36 @@ module.exports = {
 
         const firstReplyEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
-            .setTitle("Select a role bundle to configure");
-                    
+            .setTitle("Select a role bundle to delete:");
 
         const response = await interaction.editReply({ embeds: [firstReplyEmbed], components: [roleBundleSelectorActionRow] });
 
         const responseCollector = response.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 3_600_000 });
 
+        let selectedRoleBundleToken = null;
+
         responseCollector.on('collect', async responseInteraction => {
             if(responseInteraction.customId == 'select-role-bundle'){
-                await interaction.editReply({ embeds: [loadingEmbed], components: [] });
+                await responseInteraction.deferUpdate();
+                await interaction.editReply({ components: [] });
 
                 const roleBundleSelectionBase64 = responseInteraction.values[0];
-                selectedRoleBundleTokentoDelete = Buffer.from(roleBundleSelectionBase64, 'base64').toString('ascii');
+                selectedRoleBundleToken = Buffer.from(roleBundleSelectionBase64, 'base64').toString('ascii');
 
                 const deleteQuery = 'DELETE FROM role_bundles WHERE token = ?';
 
-                await interaction.client.databaseManager.getSQLStatementPromise(deleteQuery, selectedRoleBundleTokentoDelete);
+                await interaction.client.databaseManager.getSQLStatementPromise(deleteQuery, selectedRoleBundleToken);
 
                 const roleDeleteQuery = 'DELETE FROM roles WHERE token = ?';
 
-                await interaction.client.databaseManager.getSQLStatementPromise(roleDeleteQuery, selectedRoleBundleTokentoDelete);
+                await interaction.client.databaseManager.getSQLStatementPromise(roleDeleteQuery, selectedRoleBundleToken);
 
-                const replyEmbed = new EmbedBuilder()
+                const finalReplyEmbed = new EmbedBuilder()
                     .setColor(interaction.client.embedColor)
                     .setTitle("Successfully deleted a role bundle.")
-                    .setDescription(`Role bundle token: ${selectedRoleBundleTokentoDelete}`);
+                    .setDescription(`**Deleted role bundle token:**\n\`\`\`${selectedRoleBundleToken}\`\`\``);
                             
-                await interaction.editReply({ embeds: [replyEmbed] });
-
-                await responseInteraction.deferUpdate();
+                await interaction.editReply({ embeds: [finalReplyEmbed] });
 
                 responseCollector.stop(`Interaction complete`);
             }

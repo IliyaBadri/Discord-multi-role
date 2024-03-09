@@ -8,6 +8,11 @@ module.exports = {
         .setName('create-role-bundle')
         .setDescription('Creates a role bundle.'),
     async execute(interaction) {
+        const loadingEmbed = new EmbedBuilder()
+            .setColor(interaction.client.embedColor)
+            .setTitle("Loading . . .")
+        
+        await interaction.reply({ embeds: [loadingEmbed] , ephemeral: true });
 
         const interactionMember = interaction.member;
 
@@ -31,8 +36,8 @@ module.exports = {
         const replyEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
             .setTitle("Successfully created a role bundle.")
-            .setDescription(`Role bundle token: ${token}`);
+            .setDescription(`**Role bundle token:**\n\`\`\`${token}\`\`\``);
                     
-        await interaction.reply({ embeds: [replyEmbed], ephemeral: true });
+        await interaction.editReply({ embeds: [replyEmbed] });
     },
 };

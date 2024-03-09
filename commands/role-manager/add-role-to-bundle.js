@@ -4,11 +4,11 @@ const { embedErrorMessages } = require('../../modules/enums');
 module.exports = {
     allowDM: false,
     data: new SlashCommandBuilder()
-        .setName('role')
-        .setDescription('Adds a role bundle to a user in discord.')
-        .addUserOption(option => 
-            option.setName('user')
-                .setDescription('The user that the role bundle is going to be added to.')
+        .setName('add-role-to-bundle')
+        .setDescription('Adds a role to a role bundle.')
+        .addRoleOption(option => 
+            option.setName('role')
+                .setDescription('The role that is going to be added to the bundle.')
                 .setRequired(true)
         ),
     async execute(interaction) {
@@ -18,9 +18,19 @@ module.exports = {
         
         await interaction.reply({ embeds: [loadingEmbed] , ephemeral: true });
 
-        const targetUser = interaction.options.getUser('user');
+        const targetRole = interaction.options.getRole('role');
 
         const interactionMember = interaction.member;
+
+        if(!interactionMember.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            const errorEmbed = new EmbedBuilder()
+                .setColor(interaction.client.embedColor)
+                .setTitle(`Error`)
+                .setDescription(embedErrorMessages.UNAUTHORIZED_ADMINISTRATOR);
+
+            await interaction.editReply({ embeds: [errorEmbed] });
+            return;
+        };
 
         const selectQuery = 'SELECT id, owner, token FROM role_bundles WHERE owner = ?';
         const selectValues = [interactionMember.id.toString()];
@@ -42,7 +52,7 @@ module.exports = {
             const roleBundleOption = new StringSelectMenuOptionBuilder()
                 .setLabel(`#${databaseRoleBundle.token}`)
                 .setValue(Buffer.from(databaseRoleBundle.token).toString('base64'))
-                .setDescription(`Adds the #${databaseRoleBundle.token} role bundle to the user.`);
+                .setDescription(`Adds the role to the #${databaseRoleBundle.token} role bundle.`);
 
             roleBundleOptions.push(roleBundleOption);
         }
@@ -56,90 +66,44 @@ module.exports = {
 
         const firstReplyEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
-            .setTitle("Select a role bundle to add to the user:");
+            .setTitle("Select a role bundle to add the role to:");
+                    
 
         const response = await interaction.editReply({ embeds: [firstReplyEmbed], components: [roleBundleSelectorActionRow] });
 
         const responseCollector = response.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 3_600_000 });
 
         let selectedRoleBundleToken = null;
-
         responseCollector.on('collect', async responseInteraction => {
             if(responseInteraction.customId == 'select-role-bundle'){
+                await responseInteraction.deferUpdate();
                 await interaction.editReply({ components: [] });
 
                 const roleBundleSelectionBase64 = responseInteraction.values[0];
                 selectedRoleBundleToken = Buffer.from(roleBundleSelectionBase64, 'base64').toString('ascii');
 
-                const selectQuery = 'SELECT id, identifier, token FROM roles WHERE token = ?';
-                const selectValues = [selectedRoleBundleToken];
-                const databaseRoles = await interaction.client.databaseManager.getSQLSelectorPromise(selectQuery, selectValues);
+                const selectQuery = 'SELECT id, identifier, token FROM roles WHERE identifier = ? AND token = ?';
+                const selectValues = [targetRole.id.toString() , selectedRoleBundleToken];
+                const databaseExistingRoles = await interaction.client.databaseManager.getSQLSelectorPromise(selectQuery, selectValues);
 
-                if(databaseRoles.length < 1) {
+                if(databaseExistingRoles.length > 0) {
                     const errorEmbed = new EmbedBuilder()
                         .setColor(interaction.client.embedColor)
                         .setTitle(`Error`)
-                        .setDescription(embedErrorMessages.NO_ROLE_IN_BUNDLE);
+                        .setDescription(embedErrorMessages.ROLE_ALREADY_IN_BUNDLE);
 
                     await interaction.editReply({ embeds: [errorEmbed] });
                     return;
                 }
 
-                let allGuilds = [];
+                const statementQuery = 'INSERT INTO roles (identifier, token) VALUES (?, ?)';
 
-                for(const guildMap of interaction.client.guilds.cache){
-                    allGuilds.push(guildMap[1]);
-                }
-
-                let reportString = '';
-
-                for(const databaseRole of databaseRoles){
-                    for(const guild of allGuilds){
-
-                        const roleExists = await guild.roles.cache.has(databaseRole.identifier);
-
-                        if(!roleExists) continue;
-
-                        const role = await guild.roles.fetch(databaseRole.identifier);
-
-                        let guildMember;
-                        try {
-                            guildMember = await guild.members.fetch(targetUser.id);
-                            if(!guildMember) throw null;
-                        } catch {
-                            reportString += `**@${role.name} - ${guild.name}**\n> User wasn't in guild.\n\n`;
-                            continue;
-                        }   
-
-                        let guildInteractor;
-                        try{
-                            guildInteractor = await guild.members.fetch(interactionMember.user.id);
-                            if(!guildInteractor) throw null;
-                        } catch {
-                            reportString += `**@${role.name} - ${guild.name}**\n> You weren't in the guild.\n\n`;
-                            continue;
-                        }
-
-                        if(!guildInteractor.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                            reportString += `**@${role.name} - ${guild.name}**\n> You didn't have permission.\n\n`;
-                            continue;
-                        }
-    
-                        try{
-                            await guildMember.roles.add(role);
-                        } catch (error){
-                            reportString += `**@${role.name} - ${guild.name}**\n> Bot didn't have permission.\n\n`;
-                            continue;
-                        } 
-
-                        reportString += `**@${role.name} - ${guild.name}**\n> Successfuly added.\n\n`;
-                    };
-                };
+                await interaction.client.databaseManager.getSQLStatementPromise(statementQuery, targetRole.id.toString(), selectedRoleBundleToken);
 
                 const finalReplyEmbed = new EmbedBuilder()
                     .setColor(interaction.client.embedColor)
-                    .setTitle("Successfully added a role bundle to a user.")
-                    .setDescription(`Role bundle token:\n\`\`\`${selectedRoleBundleToken}\`\`\` \n\nReport: \n${reportString}`);
+                    .setTitle("Successfully added the role to the role bundle.")
+                    .setDescription(`**Role bundle token:**\n\`\`\`${selectedRoleBundleToken}\`\`\`\n\n**Role:** \n\`\`\`@${targetRole.name}\`\`\`\n**Server:** \n\`\`\`${targetRole.guild.name}\`\`\`\n**ID:**\n\`\`\`${targetRole.id}\`\`\``);
                             
                 await interaction.editReply({ embeds: [finalReplyEmbed] });
 

@@ -1,24 +1,17 @@
-const { SlashCommandBuilder, EmbedBuilder, StringSelectMenuOptionBuilder, PermissionsBitField, StringSelectMenuBuilder, ActionRowBuilder, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, StringSelectMenuOptionBuilder, StringSelectMenuBuilder, ActionRowBuilder, ComponentType } = require('discord.js');
 const { embedErrorMessages } = require('../../modules/enums');
 
 module.exports = {
     allowDM: false,
     data: new SlashCommandBuilder()
-        .setName('role')
-        .setDescription('Adds a role bundle to a user in discord.')
-        .addUserOption(option => 
-            option.setName('user')
-                .setDescription('The user that the role bundle is going to be added to.')
-                .setRequired(true)
-        ),
+        .setName('delete-role-from-bundle')
+        .setDescription('Deletes a role from a role bundle.'),
     async execute(interaction) {
         const loadingEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
             .setTitle("Loading . . .")
         
         await interaction.reply({ embeds: [loadingEmbed] , ephemeral: true });
-
-        const targetUser = interaction.options.getUser('user');
 
         const interactionMember = interaction.member;
 
@@ -42,7 +35,7 @@ module.exports = {
             const roleBundleOption = new StringSelectMenuOptionBuilder()
                 .setLabel(`#${databaseRoleBundle.token}`)
                 .setValue(Buffer.from(databaseRoleBundle.token).toString('base64'))
-                .setDescription(`Adds the #${databaseRoleBundle.token} role bundle to the user.`);
+                .setDescription(`Lets you delete a role from the #${databaseRoleBundle.token} role bundle.`);
 
             roleBundleOptions.push(roleBundleOption);
         }
@@ -56,7 +49,7 @@ module.exports = {
 
         const firstReplyEmbed = new EmbedBuilder()
             .setColor(interaction.client.embedColor)
-            .setTitle("Select a role bundle to add to the user:");
+            .setTitle("Select a role bundle to delete a role from:");
 
         const response = await interaction.editReply({ embeds: [firstReplyEmbed], components: [roleBundleSelectorActionRow] });
 
@@ -66,6 +59,8 @@ module.exports = {
 
         responseCollector.on('collect', async responseInteraction => {
             if(responseInteraction.customId == 'select-role-bundle'){
+
+                await responseInteraction.deferUpdate();
                 await interaction.editReply({ components: [] });
 
                 const roleBundleSelectionBase64 = responseInteraction.values[0];
@@ -80,7 +75,7 @@ module.exports = {
                         .setColor(interaction.client.embedColor)
                         .setTitle(`Error`)
                         .setDescription(embedErrorMessages.NO_ROLE_IN_BUNDLE);
-
+        
                     await interaction.editReply({ embeds: [errorEmbed] });
                     return;
                 }
@@ -91,55 +86,64 @@ module.exports = {
                     allGuilds.push(guildMap[1]);
                 }
 
-                let reportString = '';
+                let roleOptions = [];
 
                 for(const databaseRole of databaseRoles){
-                    for(const guild of allGuilds){
+                    let roleTitle = `@UNKNOWN ROLE - ${databaseRole.identifier} - UNKNOWN SERVER`;
+                    let roleExists = false;
+                    let role = null;
+                    for(guild of allGuilds){
+                        const roleExistsInGuild = await guild.roles.cache.has(databaseRole.identifier);
 
-                        const roleExists = await guild.roles.cache.has(databaseRole.identifier);
+                        if(!roleExistsInGuild) continue;
 
-                        if(!roleExists) continue;
+                        roleExists = true;
 
-                        const role = await guild.roles.fetch(databaseRole.identifier);
+                        role = await guild.roles.fetch(databaseRole.identifier);
+                        break;
+                    }
 
-                        let guildMember;
-                        try {
-                            guildMember = await guild.members.fetch(targetUser.id);
-                            if(!guildMember) throw null;
-                        } catch {
-                            reportString += `**@${role.name} - ${guild.name}**\n> User wasn't in guild.\n\n`;
-                            continue;
-                        }   
+                    
 
-                        let guildInteractor;
-                        try{
-                            guildInteractor = await guild.members.fetch(interactionMember.user.id);
-                            if(!guildInteractor) throw null;
-                        } catch {
-                            reportString += `**@${role.name} - ${guild.name}**\n> You weren't in the guild.\n\n`;
-                            continue;
-                        }
+                    if(roleExists) {
+                        roleTitle = `@${role.name} - ${databaseRole.identifier} - ${role.guild.name}`;
+                    }
 
-                        if(!guildInteractor.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                            reportString += `**@${role.name} - ${guild.name}**\n> You didn't have permission.\n\n`;
-                            continue;
-                        }
-    
-                        try{
-                            await guildMember.roles.add(role);
-                        } catch (error){
-                            reportString += `**@${role.name} - ${guild.name}**\n> Bot didn't have permission.\n\n`;
-                            continue;
-                        } 
+                    const roleOption = new StringSelectMenuOptionBuilder()
+                        .setLabel(roleTitle)
+                        .setValue(Buffer.from(databaseRole.identifier).toString('base64'))
+                        .setDescription(`Deletes the ${roleTitle}`);
 
-                        reportString += `**@${role.name} - ${guild.name}**\n> Successfuly added.\n\n`;
-                    };
-                };
+                    roleOptions.push(roleOption);
+                }
+
+                const roleSelectorMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select-role')
+                    .addOptions(roleOptions);
+
+                const roleSelectorActionRow = new ActionRowBuilder()
+                    .addComponents(roleSelectorMenu);
+
+                const secondReplyEmbed = new EmbedBuilder()
+                    .setColor(interaction.client.embedColor)
+                    .setTitle("Select a role to delete from the role bundle:");
+
+                await interaction.editReply({ embeds: [secondReplyEmbed], components: [roleSelectorActionRow] });
+            } else if(responseInteraction.customId == 'select-role'){
+                await responseInteraction.deferUpdate();
+                await interaction.editReply({ components: [] });
+
+                const roleSelectionBase64 = responseInteraction.values[0];
+                const selectedRoleIdentifier = Buffer.from(roleSelectionBase64, 'base64').toString('ascii');
+
+                const deleteQuery = 'DELETE FROM roles WHERE identifier = ? AND token = ?';
+
+                await interaction.client.databaseManager.getSQLStatementPromise(deleteQuery, selectedRoleIdentifier, selectedRoleBundleToken);
 
                 const finalReplyEmbed = new EmbedBuilder()
                     .setColor(interaction.client.embedColor)
-                    .setTitle("Successfully added a role bundle to a user.")
-                    .setDescription(`Role bundle token:\n\`\`\`${selectedRoleBundleToken}\`\`\` \n\nReport: \n${reportString}`);
+                    .setTitle("Successfully deleted the role from the role bundle.")
+                    .setDescription(`**Role bundle token:**\n\`\`\`${selectedRoleBundleToken}\`\`\`\n\n**ID:**\n\`\`\`${selectedRoleIdentifier}\`\`\``);
                             
                 await interaction.editReply({ embeds: [finalReplyEmbed] });
 

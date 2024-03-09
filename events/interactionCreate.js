@@ -28,14 +28,18 @@ module.exports = {
                     .setColor(interaction.client.embedColor)
                     .setTitle('Error')
                     .setDescription(embedErrorMessages.EXECUTION_ERROR)
-                
-                if (interaction.replied || interaction.deferred) {
+                try{
+                    if (interaction.replied || interaction.deferred) {
                     
-                    await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
-                    return;
-                }
+                        await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+                    } else {
+                        await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                    }
+                } catch {
 
-                await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                }
+                
+                
             } 
         } 
 	},
